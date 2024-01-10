@@ -120,3 +120,65 @@ class GenerateLUMapTool(object):
 
 # Helper functions
 
+
+# Check that the APRX file exists
+def check_aprx_file(input_aprx_filepath):
+    """
+    Checks if the specified APRX file exists in the directory. If not, an error is raised using arcpy.AddError.
+
+    :param aprx_path: Path to the APRX file.
+    """
+    if not os.path.exists(input_aprx_filepath):
+        error_msg = f"APRX file not found: {input_aprx_filepath}"
+        arcpy.AddError(error_msg)
+        raise FileNotFoundError(error_msg)
+    else:
+        arcpy.AddMessage(f"APRX file found: {input_aprx_filepath}")
+    return
+
+
+# Iterate through relevant maps and layouts and:
+#       generate a list of map objects
+#       build a list of layout objects
+def list_map_objects(aprx_path, prefix="Maps_"):
+    """
+    Lists map objects in the APRX file that have a specific prefix in their name.
+
+    :param aprx_path: Path to the APRX file.
+    :param prefix: The prefix to search for in map names.
+    :return: List of map names with the specified prefix.
+    """
+    aprx = arcpy.mp.ArcGISProject(aprx_path)
+    map_list = [m for m in aprx.listMaps() if m.name.startswith(prefix)]
+    return map_list
+
+
+def list_layout_objects(aprx_path):
+    """
+    Lists all layout objects in the APRX file.
+
+    :param aprx_path: Path to the APRX file.
+    :return: List of layout objects.
+    """
+    aprx = arcpy.mp.ArcGISProjects(aprx_path)
+    layout_list = aprx.listLayouts()
+    return layout_list
+
+
+# Build list of sanitized tax account IDs
+
+# Create a safe version of the PFN
+# create_safe_pfn (pfn_id):
+#   return
+
+# Build definition query for the Subject Property layer based on found tax ID list
+
+# Extract the parcel polygon feature(s) based on the user submitted PFN(s) into memory
+
+# If there is more than one parcel submitted by user, dissolve the parcels into a single polygon feature
+
+# Update the text elements in layout with the APRX and looping through them
+
+# Export the pdf file to supplied directory
+# export_pdf(export_pdf_path):
+#   return
