@@ -38,55 +38,48 @@ class GenerateLUMapTool(object):
 
         # First parameter
         param0 = arcpy.Parameter(
-            displayName="PFN",
-            name="pfn",
-            datatype="DEString",
-            parameterType="Required",
-            direction="Input")
-
-        param1 = arcpy.Parameter(
-            displayName="Carto Code",
-            name="carto_code",
-            datatype="DEString",
-            parameterType="Required",
-            direction="Input")
-
-        param2 = arcpy.Parameter(
             displayName="Project Name",
             name="project_name",
             datatype="DEString",
             parameterType="Required",
             direction="Input")
 
-        param3 = arcpy.Parameter(
+        param1 = arcpy.Parameter(
+            displayName="PFN",
+            name="pfn_id",
+            datatype="DEString",
+            parameterType="Required",
+            direction="Input")
+
+        param2 = arcpy.Parameter(
             displayName="Project Manager",
             name="project_manager",
             datatype="DEString",
             parameterType="Required",
             direction="Input")
 
+        param3 = arcpy.Parameter(
+            displayName="Property ID",
+            name="property_id",
+            datatype="DEString",
+            parameterType="Required",
+            direction="Input")
+
         param4 = arcpy.Parameter(
-            displayName="Tax Account #(s)",
-            name="tax_account_number",
+            displayName="Carto Code",
+            name="carto_code",
             datatype="DEString",
             parameterType="Required",
             direction="Input")
 
-        param5 = arcpy.Parameter(
-            displayName="Project Name",
-            name="project_name",
+        param5 - arcpy.Parameter(
+            displayName="Project Year",
+            name="project_year",
             datatype="DEString",
             parameterType="Required",
             direction="Input")
-
-        # param6 - arcpy.Parameter(
-        #     displayName="Project Year",
-        #     name="project_year",
-        #     datatype="DEString",
-        #     parameterType="Required",
-        #     direction="Input")
-        # param6.filter.type = "ValueList"
-        # param6.filter.list = [2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017, 2016, 2015, 2014, 2013, 2012]
+        param5.filter.type = "ValueList"
+        param5.filter.list = [2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017, 2016, 2015, 2014, 2013, 2012]
 
         params = [param0, param1, param2, param3, param4, param5]
         return params
@@ -140,7 +133,7 @@ def check_aprx_file(input_aprx_filepath):
 # Iterate through relevant maps and layouts and:
 #       generate a list of map objects
 #       build a list of layout objects
-def list_map_objects(aprx_path, prefix="Maps_"):
+def list_map_objects(aprx_path, prefix="Map_*"):
     """
     Lists map objects in the APRX file that have a specific prefix in their name.
 
@@ -149,7 +142,7 @@ def list_map_objects(aprx_path, prefix="Maps_"):
     :return: List of map names with the specified prefix.
     """
     aprx = arcpy.mp.ArcGISProject(aprx_path)
-    map_list = [m for m in aprx.listMaps() if m.name.startswith(prefix)]
+    map_list = [m for m in aprx.listMaps(prefix)] #if m.name.startswith(prefix)
     return map_list
 
 
@@ -160,25 +153,170 @@ def list_layout_objects(aprx_path):
     :param aprx_path: Path to the APRX file.
     :return: List of layout objects.
     """
-    aprx = arcpy.mp.ArcGISProjects(aprx_path)
+    aprx = arcpy.mp.ArcGISProject(aprx_path)
     layout_list = aprx.listLayouts()
     return layout_list
 
 
-# Build list of sanitized tax account IDs
+# Build list of sanitized tax account IDs from list or tuple of user-supplied parcel IDs
+def convert_to_list(input_string):
+    """
+    Converts a string of values separated by commas or spaces into a list
+    :param input_string: string containing values separated by comma or space
+    :return: list of values
+    """
+    value_list = input_string.replace(',', ' ' ).split()
+    return value_list
 
-# Create a safe version of the PFN
-# create_safe_pfn (pfn_id):
-#   return
+
+def sanitize_parcel_id(input_parcel_ids):
+    """
+    Consumes tax account (parcel) IDs and sanitized them by stripping whitespace and "_" characters
+
+    :param input_parcel_id: parcel ID in string format
+    :return: list of sanitized parcel ID strings
+    """
+    list_parcel_ids = convert_to_list(input_parcel_ids)
+    sanitized_parcel_ids = [str(parcel_id).strip().replace("-","") for parcel_id in list_parcel_ids]
+    return sanitized_parcel_ids
+
 
 # Build definition query for the Subject Property layer based on found tax ID list
+def generate_subject_property_query(list_parcel_ids, field_name="PARCEL_ID"):
+    """
+    Builds a query from a list of tax account (i.e. parcel) ID values
 
-# Extract the parcel polygon feature(s) based on the user submitted PFN(s) into memory
+    :param list_parcel_ids: list of parcel ID values
+    :param field_name: name of the attribute field to include in query
+    :return: query string
+    """
+    parcel_id_string = ', '.join(["'{}'".format(value) for value in list_parcel_ids])
+    query_string = f"{field_name} IN ({parcel_id_string})"
+    return query_string
+
+
+def find_layer(input_map_obj_list, map_name, layer_name):
+    """
+    Finds a layer object based on wildcard layer name from first map object in the list.
+
+    :param input_map_list: list of map objects
+    :param layer_name: wildcard string for the layer name
+    :return:  The layer object if found, otherwise None
+    """
+    try:
+        map_obj = next((map for map in input_map_obj_list if map.name == map_name))
+        if not map_obj:
+            arcpy.AddError(f"Map '{map_name}' not found.")
+            return None
+
+        layer_obj = map_obj.listLayers(layer_name)
+        if not layer_obj:
+            arcpy.AddWarning(f"No layers matching '{layer_name} were found!")
+            return None
+        return layer_obj[0]
+
+    except IndexError:
+        arcpy.AddError("List of map objects is empty or invalid!")
+        return None
+    except Exception as e:
+        arcpy.AddError(f"{str(e)}")
+        return None
+
+
+def extract_fc_to_memory(src_layer, query_string, target_lyr=r"memory\selected_features"):
+    arcpy.SelectLayerByAttribute_management(in_layer_or_view=src_layer,
+                                            selection_type="NEW_SELECTION",
+                                            where_clause=query_string)
+    arcpy.CopyFeatures_management(in_features=src_layer, out_feature_class=target_lyr)
+    return target_lyr
+
+
+# Select cadastral parcel features based on the user submitted parcel ID values
+def check_fc_exists(input_aprx, target_fc):
+    default_gdb = input_aprx.defaultGeodatabase
+    target_fc_path = os.path.join(default_gdb, target_fc)
+    if arcpy.Exists(target_fc_path):
+        arcpy.AddMessage(f"{target_fc} found in default geodatabase...")
+        return target_fc_path
+    else:
+        arcpy.AddError(f"Feature class {target_fc} not found in default geodatabase!")
+
+
+def empty_fc(target_fc_path):
+    try:
+        arcpy.DeleteRows_management(target_fc_path)
+        arcpy.AddMessage(f"Existing feature deleted from {target_fc_path}...")
+    except Exception as e:
+        arcpy.AddError(f"Error: {str(e)}")
+    return
+
+
+def empty_and_append(input_layer, input_target_fc):
+    """
+    Select features from a layer and append them to an existing target feature class after emptying the target feature
+    class of all features.
+
+    :param input_qry_string:
+    :param input_layer:
+    :param input_target_fc:
+    :return:
+    """
+    empty_fc(input_target_fc)
+    arcpy.Append_management(inputs=input_layer, target=input_target_fc)
+    arcpy.SelectLayerByAttribute_management(in_layer_or_view=input_layer,
+                                            selection_type="CLEAR_SELECTION")
+    target_fc_lyr = "target_fc_lyr"
+    arcpy.MakeFeatureLayer_management(in_features=input_target_fc, out_layer="target_fc_lyr")
+    return target_fc_lyr
+
 
 # If there is more than one parcel submitted by user, dissolve the parcels into a single polygon feature
+
+# Create a safe version of the PFN
+def sanitize_pfn (pfn_id):
+
+    return
 
 # Update the text elements in layout with the APRX and looping through them
 
 # Export the pdf file to supplied directory
 # export_pdf(export_pdf_path):
 #   return
+
+
+# TESTING
+param0 = "Manvar Plat"
+param1 = "2023 119498 000 00 SHOR" # pfn_id
+param2 = "Kim Mason-Hatt"
+param3 = "003741-001-014-01, 003741-001-013-00"
+param4 = "carto_code"
+param5 = "2023"
+
+params = [param0, param1, param2, param3, param4, param5]
+aprx_filepath = r"C:\Users\SCDJ2L\dev\LUPermitToolbox\PermitMaps.aprx"
+
+check_aprx_file(aprx_filepath)
+aprx_obj = arcpy.mp.ArcGISProject(aprx_filepath)
+list_map_obj = list_map_objects(aprx_filepath)
+list_layout_obj = list_layout_objects(aprx_filepath)
+list_parcel_ids = sanitize_parcel_id(params[3])
+qry_parcel_ids = generate_subject_property_query(list_parcel_ids)
+map_name = "Map_OZMap"
+layer_name = "Cadastral Parcel"
+found_layer_obj = find_layer(list_map_obj, map_name, layer_name)
+if found_layer_obj:
+    arcpy.AddMessage(f"Parcel layer found: {found_layer_obj}")
+else:
+    arcpy.AddWarning(f"Parcel layer not found")
+
+memory_lyr = extract_fc_to_memory(found_layer_obj, qry_parcel_ids)
+memory_lyr_dslv = r"memory\memory_lyr_dslv"
+if len(list_parcel_ids) > 1:
+    arcpy.AddMessage("There are > 1 parcels. The parcel boundaries will be dissolved...")
+    arcpy.Dissolve_management(in_features=memory_lyr, out_feature_class=memory_lyr_dslv)
+
+target_fc = "SubjectProperty"
+check_fc_exists(aprx_obj, target_fc)
+# TESTING Functions successfully tested to this point
+subject_property_lyr = empty_and_append(memory_lyr_dslv, target_fc)
+
