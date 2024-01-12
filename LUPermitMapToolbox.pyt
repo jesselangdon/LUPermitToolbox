@@ -192,6 +192,7 @@ def generate_subject_property_query(list_parcel_ids, field_name="PARCEL_ID"):
     """
     parcel_id_string = ', '.join(["'{}'".format(value) for value in list_parcel_ids])
     query_string = f"{field_name} IN ({parcel_id_string})"
+    arcpy.AddMessage("Query string to select subject property features generated...")
     return query_string
 
 
@@ -210,6 +211,7 @@ def find_layer(input_map_obj_list, map_name, layer_name):
             return None
 
         layer_obj = map_obj.listLayers(layer_name)
+        arcpy.AddMessage(f"Layer {layer_name} was found in {map_name}...")
         if not layer_obj:
             arcpy.AddWarning(f"No layers matching '{layer_name} were found!")
             return None
@@ -224,6 +226,7 @@ def find_layer(input_map_obj_list, map_name, layer_name):
 
 
 def extract_fc_to_memory(src_layer, query_string, target_lyr=r"memory\selected_features"):
+    arcpy.AddMessage(f"Extracting features from {src_layer} to {target_lyr}...")
     arcpy.SelectLayerByAttribute_management(in_layer_or_view=src_layer,
                                             selection_type="NEW_SELECTION",
                                             where_clause=query_string)
@@ -316,7 +319,5 @@ if len(list_parcel_ids) > 1:
     arcpy.Dissolve_management(in_features=memory_lyr, out_feature_class=memory_lyr_dslv)
 
 target_fc = "SubjectProperty"
-check_fc_exists(aprx_obj, target_fc)
-# TESTING Functions successfully tested to this point
-subject_property_lyr = empty_and_append(memory_lyr_dslv, target_fc)
-
+target_fc_filepath = check_fc_exists(aprx_obj, target_fc)
+subject_property_lyr = empty_and_append(memory_lyr_dslv, target_fc_filepath)
