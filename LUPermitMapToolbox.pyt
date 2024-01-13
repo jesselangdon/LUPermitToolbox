@@ -2,10 +2,10 @@
 File name:      LUPermitMapToolbox.pyt
 Description:    This Python toolbox includes tools for the automated generation of PDF maps associated with PDS Land Use
                 project information, which is tracked in AMANDA. This toolbox is based on the
-
 Author:         Jesse Langdon, Principal GIS Analyst
 Department:     Snohomish County Planning and Development Services (PDS)
 Last Update:    1/10/2024
+Requirements:   ArcGIS Pro 3.x, Python 3, arcpy
 """
 
 # -*- coding: utf-8 -*-
@@ -245,7 +245,7 @@ def check_fc_exists(input_aprx, target_fc):
         arcpy.AddError(f"Feature class {target_fc} not found in default geodatabase!")
 
 
-def empty_fc(target_fc_path):
+def delete_all_features_in_fc(target_fc_path):
     try:
         arcpy.DeleteRows_management(target_fc_path)
         arcpy.AddMessage(f"Existing feature deleted from {target_fc_path}...")
@@ -259,32 +259,42 @@ def empty_and_append(input_layer, input_target_fc):
     Select features from a layer and append them to an existing target feature class after emptying the target feature
     class of all features.
 
-    :param input_qry_string:
     :param input_layer:
     :param input_target_fc:
     :return:
     """
-    empty_fc(input_target_fc)
+    delete_all_features_in_fc(input_target_fc)
     arcpy.Append_management(inputs=input_layer, target=input_target_fc)
     arcpy.SelectLayerByAttribute_management(in_layer_or_view=input_layer,
                                             selection_type="CLEAR_SELECTION")
-    target_fc_lyr = "target_fc_lyr"
-    arcpy.MakeFeatureLayer_management(in_features=input_target_fc, out_layer="target_fc_lyr")
-    return target_fc_lyr
+    return
 
 
-# If there is more than one parcel submitted by user, dissolve the parcels into a single polygon feature
+def update_fc_data_source_in_maps(list_maps, target_layer_name, data_source_string):
+    """
+    Iterates through a list of map objects and finds the target layer by name, then updates the data source of that layer
+    :param list_maps:
+    :param target_layer_name:
+    :param data_source_string:
+    :return:
+    """
+    for map in list_maps:
+            target_layer = find_layer(list_maps, map.name, target_layer_name)
+            try:
+                original_conn_prop = target_layer.connectionProperties
+                target_layer.updateConnectionProperties(current_connection_info=original_conn_prop,
+                                                        new_connection_info=data_source_string)
+                arcpy.AddMessage(f"Updated data source for layer {target_layer} in {map.name}...")
+                return target_layer
+            except Exception as e:
+                arcpy.AddError(f"Failed to update data source for layer {target_layer_name} in {map.name}. Error: {e}")
+
+
 
 # Create a safe version of the PFN
 def sanitize_pfn (pfn_id):
 
     return
-
-# Update the text elements in layout with the APRX and looping through them
-
-# Export the pdf file to supplied directory
-# export_pdf(export_pdf_path):
-#   return
 
 
 # TESTING
@@ -296,14 +306,17 @@ param4 = "carto_code"
 param5 = "2023"
 
 params = [param0, param1, param2, param3, param4, param5]
-aprx_filepath = r"C:\Users\SCDJ2L\dev\LUPermitToolbox\PermitMaps.aprx"
+aprx_filepath = r"C:\Users\SCDJ2L\dev\LUPermitToolbox\PermitMaps_TEST.aprx"
 
+# Open required objects from APRX file
 check_aprx_file(aprx_filepath)
 aprx_obj = arcpy.mp.ArcGISProject(aprx_filepath)
 list_map_obj = list_map_objects(aprx_filepath)
 list_layout_obj = list_layout_objects(aprx_filepath)
 list_parcel_ids = sanitize_parcel_id(params[3])
 qry_parcel_ids = generate_subject_property_query(list_parcel_ids)
+
+# Find the cadastral parcel layer in the Map_OZMap map object
 map_name = "Map_OZMap"
 layer_name = "Cadastral Parcel"
 found_layer_obj = find_layer(list_map_obj, map_name, layer_name)
@@ -312,12 +325,33 @@ if found_layer_obj:
 else:
     arcpy.AddWarning(f"Parcel layer not found")
 
-memory_lyr = extract_fc_to_memory(found_layer_obj, qry_parcel_ids)
-memory_lyr_dslv = r"memory\memory_lyr_dslv"
+# Extract the subject property parcel features, and dissolve (if number of parcels is > 1)
+memory_lyr_extract = extract_fc_to_memory(found_layer_obj, qry_parcel_ids)
+memory_lyr = r"memory\memory_lyr"
 if len(list_parcel_ids) > 1:
     arcpy.AddMessage("There are > 1 parcels. The parcel boundaries will be dissolved...")
-    arcpy.Dissolve_management(in_features=memory_lyr, out_feature_class=memory_lyr_dslv)
-
+    arcpy.Dissolve_management(in_features=memory_lyr_extract, out_feature_class=memory_lyr)
+else:
+    arcpy.MakeFeatureLayer_management(in_features=memory_lyr_extract, out_layer=memory_lyr)
 target_fc = "SubjectProperty"
 target_fc_filepath = check_fc_exists(aprx_obj, target_fc)
-subject_property_lyr = empty_and_append(memory_lyr_dslv, target_fc_filepath)
+empty_and_append(memory_lyr, target_fc_filepath)
+
+for map_obj in list_map_obj:
+    if map_obj.name == "Map_OZMap":
+        subject_prop_lyr_obj = map_obj.listLayers("Subject Property")[0]
+arcpy.MakeFeatureLayer_management(in_features=target_fc_filepath, out_layer="Subject Property")
+arcpy.SelectLayerByAttribute_management(in_layer_or_view="Subject Property",selection_type="NEW_SELECTION")
+layer_extent_data = arcpy.da.Describe("Subject Property")['extent']
+extent_obj = arcpy.Extent(layer_extent_data.XMin, layer_extent_data.YMin, layer_extent_data.XMax, layer_extent_data.YMax)
+
+
+# Zoom to extent of subject property feature
+for lyt in list_layout_obj:
+    mapframe_list = lyt.listElements("MAPFRAME_ELEMENT")
+    for mf in mapframe_list:
+        if mf.map.name in ("Map_OZMap", "Map_Aerial"):
+            mf.camera.setExtent(extent_obj)
+
+aprx_obj.saveACopy(r"C:\Users\SCDJ2L\dev\LUPermitToolbox\TEST.aprx")
+print("Testing complete")
