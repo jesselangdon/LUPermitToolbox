@@ -337,9 +337,9 @@ target_fc = "SubjectProperty"
 target_fc_filepath = check_fc_exists(aprx_obj, target_fc)
 empty_and_append(memory_lyr, target_fc_filepath)
 
-for map_obj in list_map_obj:
-    if map_obj.name == "Map_OZMap":
-        subject_prop_lyr_obj = map_obj.listLayers("Subject Property")[0]
+# Pan and zoom to extent of subject property feature
+subject_prop_lyr_obj = next((map_obj.listLayers("Subject Property")[0]
+                             for map_obj in list_map_obj if map_obj.name == "Map_OZMap"), None)
 arcpy.MakeFeatureLayer_management(in_features=target_fc_filepath, out_layer="Subject Property")
 arcpy.SelectLayerByAttribute_management(in_layer_or_view="Subject Property",selection_type="NEW_SELECTION")
 layer_extent_data = arcpy.da.Describe("Subject Property")['extent']
