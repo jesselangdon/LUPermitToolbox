@@ -325,7 +325,7 @@ if found_layer_obj:
 else:
     arcpy.AddWarning(f"Parcel layer not found")
 
-# Extract the subject property parcel features, and dissolve (if number of parcels is > 1)
+# Select the subject property features from the cadastral parcel layer, and dissolve (if number of parcels is > 1)
 memory_lyr_extract = extract_fc_to_memory(found_layer_obj, qry_parcel_ids)
 memory_lyr = r"memory\memory_lyr"
 if len(list_parcel_ids) > 1:
@@ -333,6 +333,8 @@ if len(list_parcel_ids) > 1:
     arcpy.Dissolve_management(in_features=memory_lyr_extract, out_feature_class=memory_lyr)
 else:
     arcpy.MakeFeatureLayer_management(in_features=memory_lyr_extract, out_layer=memory_lyr)
+
+# Empty the subject property feature class in the project file GDB, and append the selected subject property feature
 target_fc = "SubjectProperty"
 target_fc_filepath = check_fc_exists(aprx_obj, target_fc)
 empty_and_append(memory_lyr, target_fc_filepath)
@@ -345,8 +347,7 @@ arcpy.SelectLayerByAttribute_management(in_layer_or_view="Subject Property",sele
 layer_extent_data = arcpy.da.Describe("Subject Property")['extent']
 extent_obj = arcpy.Extent(layer_extent_data.XMin, layer_extent_data.YMin, layer_extent_data.XMax, layer_extent_data.YMax)
 
-
-# Zoom to extent of subject property feature
+# Zoom to extent of subject property feature #FIXME THIS IS NOT WORKING!!!
 for lyt in list_layout_obj:
     mapframe_list = lyt.listElements("MAPFRAME_ELEMENT")
     for mf in mapframe_list:
