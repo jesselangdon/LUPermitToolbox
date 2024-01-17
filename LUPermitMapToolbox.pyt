@@ -40,48 +40,48 @@ class GenerateLUMapTool(object):
         param0 = arcpy.Parameter(
             displayName="Project Name",
             name="project_name",
-            datatype="DEString",
-            parameterType="Required",
+            datatype="GPString",
+            parameterType="Optional",
             direction="Input")
 
         param1 = arcpy.Parameter(
             displayName="PFN",
             name="pfn_id",
-            datatype="DEString",
-            parameterType="Required",
+            datatype="GPString",
+            parameterType="Optional",
             direction="Input")
 
         param2 = arcpy.Parameter(
             displayName="Project Manager",
             name="project_manager",
-            datatype="DEString",
-            parameterType="Required",
+            datatype="GPString",
+            parameterType="Optional",
             direction="Input")
 
         param3 = arcpy.Parameter(
             displayName="Property ID",
             name="property_id",
-            datatype="DEString",
-            parameterType="Required",
+            datatype="GPString",
+            parameterType="Optional",
             direction="Input")
 
         param4 = arcpy.Parameter(
             displayName="Carto Code",
             name="carto_code",
-            datatype="DEString",
-            parameterType="Required",
+            datatype="GPString",
+            parameterType="Optional",
             direction="Input")
 
-        param5 - arcpy.Parameter(
-            displayName="Project Year",
-            name="project_year",
-            datatype="DEString",
-            parameterType="Required",
-            direction="Input")
-        param5.filter.type = "ValueList"
-        param5.filter.list = [2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017, 2016, 2015, 2014, 2013, 2012]
+        # param5 - arcpy.Parameter(
+        #     displayName="Project Year",
+        #     name="project_year",
+        #     datatype="GPString",
+        #     parameterType="Optional",
+        #     direction="Input")
+        # param5.filter.type = "ValueList"
+        # param5.filter.list = [2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017, 2016, 2015, 2014, 2013, 2012]
 
-        params = [param0, param1, param2, param3, param4, param5]
+        params = [param0, param1, param2, param3, param4]
         return params
 
     def isLicensed(self):
@@ -102,7 +102,6 @@ class GenerateLUMapTool(object):
     def execute(self, parameters, messages):
         """The source code of the tool."""
 
-
         return
 
     def postExecute(self, parameters):
@@ -113,27 +112,10 @@ class GenerateLUMapTool(object):
 
 # Helper functions
 
-
-# Check that the APRX file exists
-def check_aprx_file(input_aprx_filepath):
-    """
-    Checks if the specified APRX file exists in the directory. If not, an error is raised using arcpy.AddError.
-
-    :param aprx_path: Path to the APRX file.
-    """
-    if not os.path.exists(input_aprx_filepath):
-        error_msg = f"APRX file not found: {input_aprx_filepath}"
-        arcpy.AddError(error_msg)
-        raise FileNotFoundError(error_msg)
-    else:
-        arcpy.AddMessage(f"APRX file found: {input_aprx_filepath}")
-    return
-
-
 # Iterate through relevant maps and layouts and:
 #       generate a list of map objects
 #       build a list of layout objects
-def list_map_objects(aprx_path, prefix="Map_*"):
+def list_map_objects(aprx_obj, prefix="Map_*"):
     """
     Lists map objects in the APRX file that have a specific prefix in their name.
 
@@ -141,20 +123,18 @@ def list_map_objects(aprx_path, prefix="Map_*"):
     :param prefix: The prefix to search for in map names.
     :return: List of map names with the specified prefix.
     """
-    aprx = arcpy.mp.ArcGISProject(aprx_path)
-    map_list = [m for m in aprx.listMaps(prefix)] #if m.name.startswith(prefix)
+    map_list = [m for m in aprx_obj.listMaps(prefix)] #if m.name.startswith(prefix)
     return map_list
 
 
-def list_layout_objects(aprx_path):
+def list_layout_objects(aprx_obj):
     """
     Lists all layout objects in the APRX file.
 
     :param aprx_path: Path to the APRX file.
     :return: List of layout objects.
     """
-    aprx = arcpy.mp.ArcGISProject(aprx_path)
-    layout_list = aprx.listLayouts()
+    layout_list = (aprx_obj.listLayouts())
     return layout_list
 
 
@@ -211,11 +191,11 @@ def find_layer(input_map_obj_list, map_name, layer_name):
             return None
 
         layer_obj = map_obj.listLayers(layer_name)
-        arcpy.AddMessage(f"Layer {layer_name} was found in {map_name}...")
         if not layer_obj:
             arcpy.AddWarning(f"No layers matching '{layer_name} were found!")
-            return None
-        return layer_obj[0]
+        else:
+            arcpy.AddMessage(f"Layer {layer_name} was found in {map_name}...")
+            return layer_obj[0]
 
     except IndexError:
         arcpy.AddError("List of map objects is empty or invalid!")
@@ -291,39 +271,34 @@ def update_fc_data_source_in_maps(list_maps, target_layer_name, data_source_stri
 
 
 
-# Create a safe version of the PFN
-def sanitize_pfn (pfn_id):
-
-    return
-
-
 # TESTING
-param0 = "Manvar Plat"
-param1 = "2023 119498 000 00 SHOR" # pfn_id
-param2 = "Kim Mason-Hatt"
-param3 = "003741-001-014-01, 003741-001-013-00"
-param4 = "carto_code"
-param5 = "2023"
+# param0 = "Manvar Plat"
+# param1 = "2023 119498 000 00 SHOR" # pfn_id
+# param2 = "Kim Mason-Hatt"
+# param3 = "003741-001-014-01, 003741-001-013-00"
+# param4 = "carto_code"
+# param5 = "2023"
+#
+# params = [param0, param1, param2, param3, param4, param5]
 
-params = [param0, param1, param2, param3, param4, param5]
-aprx_filepath = r"C:\Users\SCDJ2L\dev\LUPermitToolbox\PermitMaps_TEST.aprx"
+parcel_ids = "003741-001-014-01, 003741-001-013-00"
 
 # Open required objects from APRX file
-check_aprx_file(aprx_filepath)
-aprx_obj = arcpy.mp.ArcGISProject(aprx_filepath)
-list_map_obj = list_map_objects(aprx_filepath)
-list_layout_obj = list_layout_objects(aprx_filepath)
-list_parcel_ids = sanitize_parcel_id(params[3])
+# aprx = arcpy.mp.ArcGISProject("CURRENT")
+aprx = arcpy.mp.ArcGISProject(r"C:\Users\SCDJ2L\dev\LUPermitToolbox\TEST_cleanProject.aprx")
+list_map_obj = list_map_objects(aprx)
+list_layout_obj = list_layout_objects(aprx)
+list_parcel_ids = sanitize_parcel_id(parcel_ids)
 qry_parcel_ids = generate_subject_property_query(list_parcel_ids)
 
 # Find the cadastral parcel layer in the Map_OZMap map object
 map_name = "Map_OZMap"
-layer_name = "Cadastral Parcel"
+layer_name = "Cadastral Parcels"
 found_layer_obj = find_layer(list_map_obj, map_name, layer_name)
 if found_layer_obj:
     arcpy.AddMessage(f"Parcel layer found: {found_layer_obj}")
 else:
-    arcpy.AddWarning(f"Parcel layer not found")
+    arcpy.AddError(f"Parcel layer not found!")
 
 # Select the subject property features from the cadastral parcel layer, and dissolve (if number of parcels is > 1)
 memory_lyr_extract = extract_fc_to_memory(found_layer_obj, qry_parcel_ids)
@@ -336,23 +311,24 @@ else:
 
 # Empty the subject property feature class in the project file GDB, and append the selected subject property feature
 target_fc = "SubjectProperty"
-target_fc_filepath = check_fc_exists(aprx_obj, target_fc)
+target_fc_filepath = check_fc_exists(aprx, target_fc)
 empty_and_append(memory_lyr, target_fc_filepath)
+arcpy.RecalculateFeatureClassExtent_management(target_fc_filepath)
 
 # Pan and zoom to extent of subject property feature
-subject_prop_lyr_obj = next((map_obj.listLayers("Subject Property")[0]
-                             for map_obj in list_map_obj if map_obj.name == "Map_OZMap"), None)
+# subject_prop_lyr_obj = next((map_obj.listLayers("Subject Property")[0]
+#                              for map_obj in list_map_obj if map_obj.name == "Map_OZMap"), None)
 arcpy.MakeFeatureLayer_management(in_features=target_fc_filepath, out_layer="Subject Property")
 arcpy.SelectLayerByAttribute_management(in_layer_or_view="Subject Property",selection_type="NEW_SELECTION")
 layer_extent_data = arcpy.da.Describe("Subject Property")['extent']
 extent_obj = arcpy.Extent(layer_extent_data.XMin, layer_extent_data.YMin, layer_extent_data.XMax, layer_extent_data.YMax)
+arcpy.SelectLayerByAttribute_management(in_layer_or_view="Subject Property", selection_type="CLEAR_SELECTION")
 
-# Zoom to extent of subject property feature #FIXME THIS IS NOT WORKING!!!
+# Zoom to extent of subject property feature
 for lyt in list_layout_obj:
     mapframe_list = lyt.listElements("MAPFRAME_ELEMENT")
     for mf in mapframe_list:
         if mf.map.name in ("Map_OZMap", "Map_Aerial"):
             mf.camera.setExtent(extent_obj)
-
-aprx_obj.saveACopy(r"C:\Users\SCDJ2L\dev\LUPermitToolbox\TEST.aprx")
-print("Testing complete")
+            mf.camera.scale = 2400 #TODO need to make sure the scale is set appropriately
+aprx.saveACopy(r"C:\Users\SCDJ2L\dev\LUPermitToolbox\TEST.aprx")
