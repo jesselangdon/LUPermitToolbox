@@ -192,7 +192,7 @@ def find_layer(input_map_obj_list, map_name, layer_name):
 
         layer_obj = map_obj.listLayers(layer_name)
         if not layer_obj:
-            arcpy.AddWarning(f"No layers matching '{layer_name} were found!")
+            arcpy.AddWarning(f"No layers matching {layer_name} were found!")
         else:
             arcpy.AddMessage(f"Layer {layer_name} was found in {map_name}...")
             return layer_obj[0]
@@ -205,12 +205,13 @@ def find_layer(input_map_obj_list, map_name, layer_name):
         return None
 
 
-def extract_fc_to_memory(src_layer, query_string, target_lyr=r"memory\selected_features"):
-    arcpy.AddMessage(f"Extracting features from {src_layer} to {target_lyr}...")
-    arcpy.SelectLayerByAttribute_management(in_layer_or_view=src_layer,
+def extract_fc_to_memory(src_lyr, query_string, target_lyr=r"memory\selected_features"):
+    arcpy.AddMessage(f"Extracting features from {src_lyr} to {target_lyr}...")
+    arcpy.SelectLayerByAttribute_management(in_layer_or_view=src_lyr,
                                             selection_type="NEW_SELECTION",
                                             where_clause=query_string)
-    arcpy.CopyFeatures_management(in_features=src_layer, out_feature_class=target_lyr)
+    arcpy.CopyFeatures_management(in_features=src_lyr, out_feature_class=target_lyr)
+    arcpy.SelectLayerByAttribute_management(in_layer_or_view=src_lyr, selection_type="CLEAR_SELECTION")
     return target_lyr
 
 
@@ -244,7 +245,7 @@ def empty_and_append(input_layer, input_target_fc):
     :return:
     """
     delete_all_features_in_fc(input_target_fc)
-    arcpy.Append_management(inputs=input_layer, target=input_target_fc)
+    arcpy.Append_management(inputs=input_layer, target=input_target_fc, schema_type="NO_TEST")
     arcpy.SelectLayerByAttribute_management(in_layer_or_view=input_layer,
                                             selection_type="CLEAR_SELECTION")
     return
@@ -270,22 +271,36 @@ def update_fc_data_source_in_maps(list_maps, target_layer_name, data_source_stri
                 arcpy.AddError(f"Failed to update data source for layer {target_layer_name} in {map.name}. Error: {e}")
 
 
+def field_exists(input_fc, field_name):
+    """
+    Check if a field exists in a feature class.
+
+    :param input_fc: Path to the feature class.
+    :param field_name: Name of the attribute field to check for.
+    :return: True if the field exists, False if it does not.
+    """
+    attribute_fields = arcpy.ListFields(input_fc)
+    for field in attribute_fields:
+        if field.name == field_name:
+            return True
+    return False
+
 
 # TESTING
-# param0 = "Manvar Plat"
-# param1 = "2023 119498 000 00 SHOR" # pfn_id
-# param2 = "Kim Mason-Hatt"
-# param3 = "003741-001-014-01, 003741-001-013-00"
-# param4 = "carto_code"
-# param5 = "2023"
-#
-# params = [param0, param1, param2, param3, param4, param5]
+param0 = "Manvar Plat"
+param1 = "2023 119498 000 00 SHOR" # pfn_id
+param2 = "Kim Mason-Hatt"
+param3 = "003741-001-014-01, 003741-001-013-00"
+param4 = "9999"
+param5 = "2023"
+
+params = [param0, param1, param2, param3, param4, param5]
 
 parcel_ids = "003741-001-014-01, 003741-001-013-00"
 
 # Open required objects from APRX file
 # aprx = arcpy.mp.ArcGISProject("CURRENT")
-aprx = arcpy.mp.ArcGISProject(r"C:\Users\SCDJ2L\dev\LUPermitToolbox\TEST_cleanProject.aprx")
+aprx = arcpy.mp.ArcGISProject(r"C:\Users\SCDJ2L\dev\LUPermitToolbox\PermitMaps_TEST.aprx")
 list_map_obj = list_map_objects(aprx)
 list_layout_obj = list_layout_objects(aprx)
 list_parcel_ids = sanitize_parcel_id(parcel_ids)
@@ -293,8 +308,8 @@ qry_parcel_ids = generate_subject_property_query(list_parcel_ids)
 
 # Find the cadastral parcel layer in the Map_OZMap map object
 map_name = "Map_OZMap"
-layer_name = "Cadastral Parcels"
-found_layer_obj = find_layer(list_map_obj, map_name, layer_name)
+parcel_layer_name = "Cadastral Parcel"
+found_layer_obj = find_layer(list_map_obj, map_name, parcel_layer_name)
 if found_layer_obj:
     arcpy.AddMessage(f"Parcel layer found: {found_layer_obj}")
 else:
@@ -310,25 +325,97 @@ else:
     arcpy.MakeFeatureLayer_management(in_features=memory_lyr_extract, out_layer=memory_lyr)
 
 # Empty the subject property feature class in the project file GDB, and append the selected subject property feature
-target_fc = "SubjectProperty"
-target_fc_filepath = check_fc_exists(aprx, target_fc)
-empty_and_append(memory_lyr, target_fc_filepath)
-arcpy.RecalculateFeatureClassExtent_management(target_fc_filepath)
+subject_prop_fc = "SubjectProperty"
+subject_prop_fc_path = check_fc_exists(aprx, subject_prop_fc)
+empty_and_append(memory_lyr, subject_prop_fc_path)
+arcpy.RecalculateFeatureClassExtent_management(subject_prop_fc_path)
 
-# Pan and zoom to extent of subject property feature
-# subject_prop_lyr_obj = next((map_obj.listLayers("Subject Property")[0]
-#                              for map_obj in list_map_obj if map_obj.name == "Map_OZMap"), None)
-arcpy.MakeFeatureLayer_management(in_features=target_fc_filepath, out_layer="Subject Property")
+# Determine buffer size based on where the subject property is located relative to UGA boundaries
+arcpy.AddMessage("Calculating subject property buffer...")
+uga_layer_name = "Urban Growth Area (UGA)"
+uga_layer_obj = find_layer(list_map_obj, map_name, uga_layer_name)
+arcpy.MakeFeatureLayer_management(in_features=subject_prop_fc_path, out_layer="Subject Property")
+arcpy.MakeFeatureLayer_management(in_features=uga_layer_obj, out_layer="uga_lyr")
+arcpy.SelectLayerByLocation_management(in_layer="Subject Property",
+                                       overlap_type="HAVE_THEIR_CENTER_IN",
+                                       select_features= "uga_lyr",
+                                       selection_type="NEW_SELECTION")
+select_count = int(arcpy.GetCount_management(in_rows="Subject Property")[0])
+arcpy.SelectLayerByAttribute_management(in_layer_or_view="Subject Property", selection_type="CLEAR_SELECTION")
+if select_count == 0:
+    arcpy.AddMessage("The subject property is outside of any UGAs, generating 1000ft buffer...")
+    buffer_dist = 1000
+else:
+    arcpy.AddMessage("Subject property is inside of a UGA, generating 500ft buffer...")
+    buffer_dist = 500
+
+# Generate buffer and add to buffer feature class (empty features first if necessary)
+arcpy.AddMessage("Generating subject property buffer polygon feature....")
+buffer_fc_name = "Radius"
+buffer_fc_memory = r"memory\buffer_fc"
+buffer_memory_lyr = "buffer_layer"
+buffer_fc_filepath = check_fc_exists(aprx, buffer_fc_name)
+arcpy.Buffer_analysis(in_features="Subject Property", out_feature_class=buffer_fc_memory,
+                      buffer_distance_or_field= f"{str(buffer_dist)} Feet",
+                      line_side="FULL", dissolve_option="ALL")
+arcpy.MakeFeatureLayer_management(in_features=buffer_fc_memory, out_layer=buffer_memory_lyr)
+empty_and_append(buffer_memory_lyr, buffer_fc_filepath)
+arcpy.RecalculateFeatureClassExtent_management(buffer_fc_filepath)
+
+# Add buffer distance value to attribute field in buffer feature class
+arcpy.AddMessage("Updating buffer distance attribute...")
+buffer_field = "BUFF_DIST"
+buffer_fc_lyr = "buffer_fc_lyr"
+arcpy.MakeFeatureLayer_management(in_features=buffer_fc_filepath, out_layer=buffer_fc_lyr)
+if not field_exists(buffer_fc_filepath, buffer_field):
+    arcpy.AddField_management(in_table=buffer_fc_lyr, field_name=buffer_field, field_type="SHORT")
+arcpy.CalculateField_management(in_table=buffer_fc_lyr, field=buffer_field,
+                                    expression=buffer_dist, expression_type="PYTHON3")
+
+# Get extent of subject property feature
+arcpy.AddMessage("Calculating extent of subject property feature...")
 arcpy.SelectLayerByAttribute_management(in_layer_or_view="Subject Property",selection_type="NEW_SELECTION")
-layer_extent_data = arcpy.da.Describe("Subject Property")['extent']
-extent_obj = arcpy.Extent(layer_extent_data.XMin, layer_extent_data.YMin, layer_extent_data.XMax, layer_extent_data.YMax)
+subject_prop_lyr_extent = arcpy.da.Describe("Subject Property")['extent']
+subject_prop_lyr_extent_obj = arcpy.Extent(subject_prop_lyr_extent.XMin,
+                          subject_prop_lyr_extent.YMin,
+                          subject_prop_lyr_extent.XMax,
+                          subject_prop_lyr_extent.YMax)
 arcpy.SelectLayerByAttribute_management(in_layer_or_view="Subject Property", selection_type="CLEAR_SELECTION")
 
+# Get extent of subject property boundary feature
+arcpy.AddMessage("Calculating extent of subject property buffer...")
+arcpy.SelectLayerByAttribute_management(in_layer_or_view=buffer_fc_lyr, selection_type="NEW_SELECTION")
+buffer_lyr_extent = arcpy.da.Describe(buffer_fc_lyr)["extent"]
+buffer_lyr_extent_obj = arcpy.Extent(buffer_lyr_extent.XMin,
+                          buffer_lyr_extent.YMin,
+                          buffer_lyr_extent.XMax,
+                          buffer_lyr_extent.YMax)
+arcpy.SelectLayerByAttribute_management(in_layer_or_view=buffer_fc_lyr, selection_type="CLEAR_SELECTION")
+
 # Zoom to extent of subject property feature
+arcpy.AddMessage("Updating extent of layouts...")
 for lyt in list_layout_obj:
     mapframe_list = lyt.listElements("MAPFRAME_ELEMENT")
     for mf in mapframe_list:
-        if mf.map.name in ("Map_OZMap", "Map_Aerial"):
-            mf.camera.setExtent(extent_obj)
-            mf.camera.scale = 2400 #TODO need to make sure the scale is set appropriately
-aprx.saveACopy(r"C:\Users\SCDJ2L\dev\LUPermitToolbox\TEST.aprx")
+        if mf.map.name == "Map_Aerial":
+            mf.camera.setExtent(subject_prop_lyr_extent_obj)
+            mf.camera.scale = mf.camera.scale * 2.5
+        elif mf.map.name == "Map_OZMap":
+            mf.camera.setExtent(buffer_lyr_extent_obj)
+            mf.camera.scale = mf.camera.scale * 1.5
+
+# Update text elements
+for lyt in list_layout_obj:
+    element_list = lyt.listElements("TEXT_ELEMENT")
+    for element in element_list:
+        if "<<PFN>>" in element.text:
+            element.text.replace("<<PFN>>", params[1])
+        elif "<<ProjectName>>" in element.text:
+            element.text.replace("<<ProjectName>>", params[0])
+        elif "<<ProjectManager>>" in element.text:
+            element.text.replace("<<ProjectManager>>", params[2])
+        elif "<<CartCode>>" in element.text:
+            element.text.replace("<<CartCode>>", params[4])
+        else:
+            continue
+aprx.save()
