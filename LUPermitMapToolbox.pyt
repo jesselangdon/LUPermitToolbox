@@ -146,10 +146,8 @@ class GenerateLUMapTool(object):
         arcpy.AddMessage("Calculating subject property buffer...")
         uga_layer_name = "Urban Growth Area (UGA)"
         uga_layer_obj = find_layer(list_map_obj, map_name, uga_layer_name)
-        arcpy.AddMessage("Making subject property layer...")
         subject_prop_lyr = "Subject Property Layer"
         arcpy.MakeFeatureLayer_management(in_features=subject_prop_fc_path, out_layer=subject_prop_lyr)
-        arcpy.AddMessage("Making uga layer...")
         arcpy.MakeFeatureLayer_management(in_features=uga_layer_obj, out_layer="uga_lyr")
         arcpy.AddMessage("Selecting subject property location if center is in UGA polygon features...")
         arcpy.SelectLayerByLocation_management(in_layer=subject_prop_lyr,
@@ -157,7 +155,6 @@ class GenerateLUMapTool(object):
                                                select_features="uga_lyr",
                                                selection_type="NEW_SELECTION")
         select_count = int(arcpy.GetCount_management(in_rows=subject_prop_lyr)[0])
-        arcpy.AddMessage("Clearing subject property selection...")
         arcpy.SelectLayerByAttribute_management(in_layer_or_view=subject_prop_lyr, selection_type="CLEAR_SELECTION")
         if select_count == 0:
             arcpy.AddMessage("The subject property is outside of any UGAs, generating 1000ft buffer...")
@@ -172,17 +169,14 @@ class GenerateLUMapTool(object):
         buffer_fc_memory = r"memory\buffer_fc"
         buffer_memory_lyr = "buffer_layer"
         buffer_fc_filepath = check_fc_exists(aprx, buffer_fc_name)
-        arcpy.AddMessage("Buffering the subject property...")
         arcpy.Buffer_analysis(in_features=subject_prop_lyr, out_feature_class=buffer_fc_memory,
                               buffer_distance_or_field=f"{str(buffer_dist)} Feet",
                               line_side="FULL", dissolve_option="ALL")
-        arcpy.AddMessage("Making buffer layer in memory...")
         arcpy.MakeFeatureLayer_management(in_features=buffer_fc_memory, out_layer=buffer_memory_lyr)
         empty_and_append(buffer_memory_lyr, buffer_fc_filepath)
         arcpy.RecalculateFeatureClassExtent_management(buffer_fc_filepath)
 
         # Add buffer distance value to attribute field in buffer feature class
-        arcpy.AddMessage("Updating buffer distance attribute...")
         buffer_field = "BUFF_DIST"
         buffer_fc_lyr = "buffer_fc_lyr"
         arcpy.MakeFeatureLayer_management(in_features=buffer_fc_filepath, out_layer=buffer_fc_lyr)
