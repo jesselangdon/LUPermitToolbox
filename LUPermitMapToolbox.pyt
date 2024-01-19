@@ -12,6 +12,7 @@ Requirements:   ArcGIS Pro 3.x, Python 3, arcpy
 
 import os
 import arcpy
+import time # TESTING
 
 
 class Toolbox(object):
@@ -44,12 +45,18 @@ class GenerateLUMapTool(object):
             parameterType="Optional",
             direction="Input")
 
+        # TESTING
+        param0.value = "Manvar Plat"
+
         param1 = arcpy.Parameter(
             displayName="PFN",
             name="pfn_id",
             datatype="GPString",
             parameterType="Optional",
             direction="Input")
+
+        # TESTING
+        param1.value = "23 119498"
 
         param2 = arcpy.Parameter(
             displayName="Project Manager",
@@ -58,6 +65,9 @@ class GenerateLUMapTool(object):
             parameterType="Optional",
             direction="Input")
 
+        # TESTING
+        param2.value = "Kim Mason-Hatt"
+
         param3 = arcpy.Parameter(
             displayName="Property ID",
             name="property_id",
@@ -65,12 +75,18 @@ class GenerateLUMapTool(object):
             parameterType="Optional",
             direction="Input")
 
+        # TESTING
+        param3.value = "003741-001-013-00"
+
         param4 = arcpy.Parameter(
             displayName="Carto Code",
             name="carto_code",
             datatype="GPString",
             parameterType="Optional",
             direction="Input")
+
+        # TESTING
+        param4.value = "9999"
 
         params = [param0, param1, param2, param3, param4]
         return params
@@ -94,7 +110,7 @@ class GenerateLUMapTool(object):
         """The source code of the tool."""
 
         # Open required objects from APRX file
-        aprx = arcpy.mp.ArcGISProject("CURRENT") #FIXME - this should probably save out to a new APRX and then export the PDFs from that file. Keep the template unchanged...
+        aprx = arcpy.mp.ArcGISProject("CURRENT")
         list_map_obj = list_map_objects(aprx)
         list_layout_obj = list_layout_objects(aprx)
         list_parcel_ids = sanitize_parcel_id(params[3].valueAsText)
@@ -119,23 +135,30 @@ class GenerateLUMapTool(object):
             arcpy.MakeFeatureLayer_management(in_features=memory_lyr_extract, out_layer=memory_lyr)
 
         # Empty the subject property feature class in the project file GDB, and append the selected subject property feature
+        arcpy.AddMessage("Emptying the subject property feature class of all features...")
         subject_prop_fc = "SubjectProperty"
         subject_prop_fc_path = check_fc_exists(aprx, subject_prop_fc)
         empty_and_append(memory_lyr, subject_prop_fc_path)
         arcpy.RecalculateFeatureClassExtent_management(subject_prop_fc_path)
+        arcpy.Delete_management(memory_lyr)
 
         # Determine buffer size based on where the subject property is located relative to UGA boundaries
         arcpy.AddMessage("Calculating subject property buffer...")
         uga_layer_name = "Urban Growth Area (UGA)"
         uga_layer_obj = find_layer(list_map_obj, map_name, uga_layer_name)
-        arcpy.MakeFeatureLayer_management(in_features=subject_prop_fc_path, out_layer="Subject Property")
+        arcpy.AddMessage("Making subject property layer...")
+        subject_prop_lyr = "Subject Property Layer"
+        arcpy.MakeFeatureLayer_management(in_features=subject_prop_fc_path, out_layer=subject_prop_lyr)
+        arcpy.AddMessage("Making uga layer...")
         arcpy.MakeFeatureLayer_management(in_features=uga_layer_obj, out_layer="uga_lyr")
-        arcpy.SelectLayerByLocation_management(in_layer="Subject Property",
+        arcpy.AddMessage("Selecting subject property location if center is in UGA polygon features...")
+        arcpy.SelectLayerByLocation_management(in_layer=subject_prop_lyr,
                                                overlap_type="HAVE_THEIR_CENTER_IN",
                                                select_features="uga_lyr",
                                                selection_type="NEW_SELECTION")
-        select_count = int(arcpy.GetCount_management(in_rows="Subject Property")[0])
-        arcpy.SelectLayerByAttribute_management(in_layer_or_view="Subject Property", selection_type="CLEAR_SELECTION")
+        select_count = int(arcpy.GetCount_management(in_rows=subject_prop_lyr)[0])
+        arcpy.AddMessage("Clearing subject property selection...")
+        arcpy.SelectLayerByAttribute_management(in_layer_or_view=subject_prop_lyr, selection_type="CLEAR_SELECTION")
         if select_count == 0:
             arcpy.AddMessage("The subject property is outside of any UGAs, generating 1000ft buffer...")
             buffer_dist = 1000
@@ -149,9 +172,11 @@ class GenerateLUMapTool(object):
         buffer_fc_memory = r"memory\buffer_fc"
         buffer_memory_lyr = "buffer_layer"
         buffer_fc_filepath = check_fc_exists(aprx, buffer_fc_name)
-        arcpy.Buffer_analysis(in_features="Subject Property", out_feature_class=buffer_fc_memory,
+        arcpy.AddMessage("Buffering the subject property...")
+        arcpy.Buffer_analysis(in_features=subject_prop_lyr, out_feature_class=buffer_fc_memory,
                               buffer_distance_or_field=f"{str(buffer_dist)} Feet",
                               line_side="FULL", dissolve_option="ALL")
+        arcpy.AddMessage("Making buffer layer in memory...")
         arcpy.MakeFeatureLayer_management(in_features=buffer_fc_memory, out_layer=buffer_memory_lyr)
         empty_and_append(buffer_memory_lyr, buffer_fc_filepath)
         arcpy.RecalculateFeatureClassExtent_management(buffer_fc_filepath)
@@ -162,19 +187,21 @@ class GenerateLUMapTool(object):
         buffer_fc_lyr = "buffer_fc_lyr"
         arcpy.MakeFeatureLayer_management(in_features=buffer_fc_filepath, out_layer=buffer_fc_lyr)
         if not field_exists(buffer_fc_filepath, buffer_field):
+            arcpy.AddMessage("Adding a new buffer distance attribute field...")
             arcpy.AddField_management(in_table=buffer_fc_lyr, field_name=buffer_field, field_type="SHORT")
+        arcpy.AddMessage("Updating the attribute value in the buffer distance field...")
         arcpy.CalculateField_management(in_table=buffer_fc_lyr, field=buffer_field,
                                         expression=buffer_dist, expression_type="PYTHON3")
 
         # Get extent of subject property feature
         arcpy.AddMessage("Calculating extent of subject property feature...")
-        arcpy.SelectLayerByAttribute_management(in_layer_or_view="Subject Property", selection_type="NEW_SELECTION")
+        arcpy.SelectLayerByAttribute_management(in_layer_or_view=subject_prop_lyr, selection_type="NEW_SELECTION")
         subject_prop_lyr_extent = arcpy.da.Describe("Subject Property")['extent']
         subject_prop_lyr_extent_obj = arcpy.Extent(subject_prop_lyr_extent.XMin,
                                                    subject_prop_lyr_extent.YMin,
                                                    subject_prop_lyr_extent.XMax,
                                                    subject_prop_lyr_extent.YMax)
-        arcpy.SelectLayerByAttribute_management(in_layer_or_view="Subject Property", selection_type="CLEAR_SELECTION")
+        arcpy.SelectLayerByAttribute_management(in_layer_or_view=subject_prop_lyr, selection_type="CLEAR_SELECTION")
 
         # Get extent of subject property boundary feature
         arcpy.AddMessage("Calculating extent of subject property buffer...")
@@ -203,20 +230,22 @@ class GenerateLUMapTool(object):
         for lyt in list_layout_obj:
             element_list = lyt.listElements("TEXT_ELEMENT")
             for element in element_list:
-                if "PFN <<PFN>>" == element.text:
+                if "PFN Large Text" == element.name:
                     element.text = f"PFN {params[1].valueAsText}"
-                elif "<<ProjectName>>" == element.text:
+                elif "Project Name Large Text" == element.name:
                     element.text = params[0].valueAsText
-                elif "Project Manager: <<ProjectManager>>" == element.text:
+                elif "Project Manager Text" == element.name:
                     element.text = f"Project Manager: {params[2].valueAsText}"
-                elif "Cart. Code: <<CartCode>>" == element.text:
+                elif "CartCode Text" == element.name:
                     element.text = f"Cart. Code: {params[4].valueAsText}"
-                elif "Project Folder Name: <<ProjectName>>" == element.text:
+                elif "Project Folder Name Text" == element.name:
                     element.text = f"Project Folder Name: {params[0].valueAsText}"
                 else:
                     continue
 
         # aprx.saveACopy(r"C:\Users\SCDJ2L\dev\LUPermitToolbox\PermitMaps_TEST_export.aprx")
+        aprx.save()
+        aprx.closeViews()
 
         # Generate safe version of PFN
         pfn_id = params[1].valueAsText
@@ -227,10 +256,13 @@ class GenerateLUMapTool(object):
         for lyt in list_layout_obj:
             if lyt.name == "Layout_AerialVicinity":
                 arcpy.AddMessage(f"Exporting {lyt.name} to \graphics folder...")
+                lyt.openView()
                 lyt.exportToPDF(out_pdf=f"{export_filepath}\\{pfn_safe_name}_Permits_Aerial.pdf", resolution=250,
                                 georef_info=False)
+
             elif lyt.name == "Layout_OZMap":
                 arcpy.AddMessage(f"Exporting {lyt.name} to \graphics folder...")
+                lyt.openView()
                 lyt.exportToPDF(out_pdf=f"{export_filepath}\\{pfn_safe_name}_Permits_OZMap.pdf", resolution=250,
                                 georef_info=False)
 
@@ -338,7 +370,7 @@ def find_layer(input_map_obj_list, map_name, layer_name):
 
 
 def extract_fc_to_memory(src_lyr, query_string, target_lyr=r"memory\selected_features"):
-    arcpy.AddMessage(f"Extracting features from {src_lyr} to {target_lyr}...")
+    arcpy.AddMessage(f"Extracting features from {src_lyr} to memory...")
     arcpy.SelectLayerByAttribute_management(in_layer_or_view=src_lyr,
                                             selection_type="NEW_SELECTION",
                                             where_clause=query_string)
