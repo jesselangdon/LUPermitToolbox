@@ -44,18 +44,12 @@ class GenerateLUMapTool(object):
             parameterType="Optional",
             direction="Input")
 
-        # TESTING
-        param0.value = "Manvar Plat"
-
         param1 = arcpy.Parameter(
             displayName="PFN",
             name="pfn_id",
             datatype="GPString",
             parameterType="Optional",
             direction="Input")
-
-        # TESTING
-        param1.value = "23 119498"
 
         param2 = arcpy.Parameter(
             displayName="Project Manager",
@@ -64,9 +58,6 @@ class GenerateLUMapTool(object):
             parameterType="Optional",
             direction="Input")
 
-        # TESTING
-        param2.value = "Kim Mason-Hatt"
-
         param3 = arcpy.Parameter(
             displayName="Property ID",
             name="property_id",
@@ -74,18 +65,12 @@ class GenerateLUMapTool(object):
             parameterType="Optional",
             direction="Input")
 
-        # TESTING
-        param3.value = "003741-001-013-00"
-
         param4 = arcpy.Parameter(
             displayName="Carto Code",
             name="carto_code",
             datatype="GPString",
             parameterType="Optional",
             direction="Input")
-
-        # TESTING
-        param4.value = "9999"
 
         params = [param0, param1, param2, param3, param4]
         return params
@@ -242,7 +227,7 @@ def find_layer(input_map_obj_list, map_name, layer_name):
 
     :param input_map_obj_list: list of map objects
     :param layer_name: wildcard string for the layer name
-    :return:  The layer object if found, otherwise None
+    :return: The layer object if found, otherwise None
     """
     try:
         map_obj = next((map for map in input_map_obj_list if map.name == map_name))
@@ -266,17 +251,32 @@ def find_layer(input_map_obj_list, map_name, layer_name):
 
 
 def extract_fc_to_memory(src_lyr, query_string, target_lyr=r"memory\selected_features"):
+    """
+    Select features from a layer using a supplied query string and copies that to a layer in memoriy
+
+    :param src_lyr: Source layer where the features will be extracted from
+    :param query_string: Text string used as a query in the Select process
+    :param target_lyr: in memory layer with selected features
+    :return: target_lyr
+    """
     arcpy.AddMessage(f"Extracting features from {src_lyr} to memory...")
     arcpy.SelectLayerByAttribute_management(in_layer_or_view=src_lyr,
                                             selection_type="NEW_SELECTION",
                                             where_clause=query_string)
     arcpy.CopyFeatures_management(in_features=src_lyr, out_feature_class=target_lyr)
     arcpy.SelectLayerByAttribute_management(in_layer_or_view=src_lyr, selection_type="CLEAR_SELECTION")
+
     return target_lyr
 
 
-# Select cadastral parcel features based on the user submitted parcel ID values
 def check_fc_exists(input_aprx, target_fc):
+    """
+    Checks if a feature class exists at the filepath supplied by the user
+
+    :param input_aprx: APRX object from which the defalut geodatabase parameter is pulled
+    :param target_fc: filepath of the feature class to be checked
+    :return:
+    """
     default_gdb = input_aprx.defaultGeodatabase
     target_fc_path = os.path.join(default_gdb, target_fc)
     if arcpy.Exists(target_fc_path):
@@ -285,13 +285,22 @@ def check_fc_exists(input_aprx, target_fc):
     else:
         arcpy.AddError(f"Feature class {target_fc} not found in default geodatabase!")
 
+    return
+
 
 def delete_all_features_in_fc(target_fc_path):
+    """
+    Deletes all features within a feature class
+
+    :param target_fc_path: Filepath to the feature class
+    :return:
+    """
     try:
         arcpy.DeleteRows_management(target_fc_path)
         arcpy.AddMessage(f"Existing feature deleted from {target_fc_path}...")
     except Exception as e:
         arcpy.AddError(f"Error: {str(e)}")
+
     return
 
 
@@ -300,8 +309,8 @@ def empty_and_append(input_layer, input_target_fc):
     Select features from a layer and append them to an existing target feature class after emptying the target feature
     class of all features.
 
-    :param input_layer:
-    :param input_target_fc:
+    :param input_layer: Layer with features that will be used to replace features in the target feature class
+    :param input_target_fc: Feature class with features that will be replaced by features in the input layer.
     :return:
     """
     delete_all_features_in_fc(input_target_fc)
@@ -314,9 +323,10 @@ def empty_and_append(input_layer, input_target_fc):
 def update_fc_data_source_in_maps(list_maps, target_layer_name, data_source_string):
     """
     Iterates through a list of map objects and finds the target layer by name, then updates the data source of that layer
-    :param list_maps:
-    :param target_layer_name:
-    :param data_source_string:
+
+    :param list_maps: list of map objects found in the project's APRX object
+    :param target_layer_name: Name of the layer object to be found in a map object
+    :param data_source_string: String representing the data source (feature class in the default geodatabase)
     :return:
     """
     for map in list_maps:
@@ -351,9 +361,9 @@ def dissolve_parcels_to_memory(found_layer_object, parcel_id_list, query_parcel)
     Queries the cadastral parcel layer using the input parcel ID values, extracts those parcel to a memory layer,
     then dissolves if there is more than one parcel feature.
 
-    :param found_layer_object:
-    :param parcel_id_list:
-    :param query_parcel:
+    :param found_layer_object: The cadastral parcel layer object found in the Map_OZMap map object
+    :param parcel_id_list: list of parcel IDs supplied by user from Python toolbox interface
+    :param query_parcel: string with text for querying the parcels, using the parcel IDs
     :return: memory_lyr
     """
     memory_layer_extract = extract_fc_to_memory(found_layer_object, query_parcel)
@@ -370,9 +380,9 @@ def update_subject_prop_fc(aprx_object, memory_layer):
     """
     Empties the subject property feature class in the project file GDB, and append the selected subject property feature
 
-    :param aprx_object: 
-    :param memory_layer: 
-    :return: subject_prop_fc_path:
+    :param aprx_object: The project's APRX object
+    :param memory_layer: A layer stored in memory with features to be appended to the subject property feature class
+    :return: subject_prop_fc_path: Filepath to the subject property feature class
     """
     #
     arcpy.AddMessage("Emptying the subject property feature class of all features...")
@@ -388,9 +398,9 @@ def get_buffer_distance(map_object_list, map_name, subject_property_layer):
     """
     Calculate buffer size based on where the subject property is located relative to UGA boundaries
 
-    :param map_object_list:
-    :param map_name:
-    :param subject_property_layer:
+    :param map_object_list: list of map objects found in layouts in the project's APRX object
+    :param map_name: string representing the target map objects name
+    :param subject_property_layer: layer representing subject property feature(s)
     :return: buffer_dist
     """
 
@@ -481,9 +491,9 @@ def zoom_to_subject_property(layout_object_list, subject_prop_lyr_extent, buffer
     """
     Zoom to extent of subject property feature and buffer feature
 
-    :param layout_object_list:
-    :param subject_prop_lyr_extent:
-    :param buffer_lyr_extent:
+    :param layout_object_list: list of layout objects found in the project's APRX object
+    :param subject_prop_lyr_extent: extent object for the feature in the subject property layer
+    :param buffer_lyr_extent: extent object for the buffer layer
     :return:
     """
     arcpy.AddMessage("Zoom layouts to extent of subject property and buffer...")
@@ -544,7 +554,7 @@ def export_layouts_to_pdf(layout_object_list, input_pfn):
     """
     Export both layouts to PDF files
 
-    :param layout_object_list:
+    :param layout_object_list: List of layout objects found in the project's APRX object
     :param input_pfn: sanitized PFN value as string
     :return:
     """
