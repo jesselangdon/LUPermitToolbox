@@ -4,7 +4,7 @@ Description:    This Python toolbox includes tools for the automated generation 
                 project information, which is tracked in AMANDA. This toolbox is based on the
 Author:         Jesse Langdon, Principal GIS Analyst
 Department:     Snohomish County Planning and Development Services (PDS)
-Last Update:    1/10/2024
+Last Update:    1/22/2024
 Requirements:   ArcGIS Pro 3.x, Python 3, arcpy
 """
 
@@ -12,7 +12,6 @@ Requirements:   ArcGIS Pro 3.x, Python 3, arcpy
 
 import os
 import arcpy
-import time # TESTING
 
 
 class Toolbox(object):
@@ -117,150 +116,53 @@ class GenerateLUMapTool(object):
         qry_parcel_ids = generate_subject_property_query(list_parcel_ids)
 
         # Find the cadastral parcel layer in the Map_OZMap map object
-        map_name = "Map_OZMap"
+        map = "Map_OZMap"
         parcel_layer_name = "Cadastral Parcel"
-        found_layer_obj = find_layer(list_map_obj, map_name, parcel_layer_name)
+        found_layer_obj = find_layer(list_map_obj, map, parcel_layer_name)
         if found_layer_obj:
             arcpy.AddMessage(f"Parcel layer found: {found_layer_obj}")
         else:
             arcpy.AddError(f"Parcel layer not found!")
 
         # Select the subject property features from the cadastral parcel layer, and dissolve (if number of parcels is > 1)
-        memory_lyr_extract = extract_fc_to_memory(found_layer_obj, qry_parcel_ids)
-        memory_lyr = r"memory\memory_lyr"
-        if len(list_parcel_ids) > 1:
-            arcpy.AddMessage("There are > 1 parcels. The parcel boundaries will be dissolved...")
-            arcpy.Dissolve_management(in_features=memory_lyr_extract, out_feature_class=memory_lyr)
-        else:
-            arcpy.MakeFeatureLayer_management(in_features=memory_lyr_extract, out_layer=memory_lyr)
+        memory_lyr = dissolve_parcels_to_memory(found_layer_obj, list_parcel_ids, qry_parcel_ids)
 
         # Empty the subject property feature class in the project file GDB, and append the selected subject property feature
-        arcpy.AddMessage("Emptying the subject property feature class of all features...")
-        subject_prop_fc = "SubjectProperty"
-        subject_prop_fc_path = check_fc_exists(aprx, subject_prop_fc)
-        empty_and_append(memory_lyr, subject_prop_fc_path)
-        arcpy.RecalculateFeatureClassExtent_management(subject_prop_fc_path)
-        arcpy.Delete_management(memory_lyr)
+        subject_prop_fc_path = update_subject_prop_fc(aprx, memory_lyr)
 
-        # Determine buffer size based on where the subject property is located relative to UGA boundaries
-        arcpy.AddMessage("Calculating subject property buffer...")
-        uga_layer_name = "Urban Growth Area (UGA)"
-        uga_layer_obj = find_layer(list_map_obj, map_name, uga_layer_name)
         subject_prop_lyr = "Subject Property Layer"
         arcpy.MakeFeatureLayer_management(in_features=subject_prop_fc_path, out_layer=subject_prop_lyr)
-        arcpy.MakeFeatureLayer_management(in_features=uga_layer_obj, out_layer="uga_lyr")
-        arcpy.AddMessage("Selecting subject property location if center is in UGA polygon features...")
-        arcpy.SelectLayerByLocation_management(in_layer=subject_prop_lyr,
-                                               overlap_type="HAVE_THEIR_CENTER_IN",
-                                               select_features="uga_lyr",
-                                               selection_type="NEW_SELECTION")
-        select_count = int(arcpy.GetCount_management(in_rows=subject_prop_lyr)[0])
-        arcpy.SelectLayerByAttribute_management(in_layer_or_view=subject_prop_lyr, selection_type="CLEAR_SELECTION")
-        if select_count == 0:
-            arcpy.AddMessage("The subject property is outside of any UGAs, generating 1000ft buffer...")
-            buffer_dist = 1000
-        else:
-            arcpy.AddMessage("Subject property is inside of a UGA, generating 500ft buffer...")
-            buffer_dist = 500
+
+        # Calculate buffer distance based on where the subject property is located relative to UGA boundaries
+        buffer_dist = get_buffer_distance(list_map_obj, map, subject_prop_lyr)
 
         # Generate buffer and add to buffer feature class (empty features first if necessary)
-        arcpy.AddMessage("Generating subject property buffer polygon feature....")
-        buffer_fc_name = "Radius"
-        buffer_fc_memory = r"memory\buffer_fc"
-        buffer_memory_lyr = "buffer_layer"
-        buffer_fc_filepath = check_fc_exists(aprx, buffer_fc_name)
-        arcpy.Buffer_analysis(in_features=subject_prop_lyr, out_feature_class=buffer_fc_memory,
-                              buffer_distance_or_field=f"{str(buffer_dist)} Feet",
-                              line_side="FULL", dissolve_option="ALL")
-        arcpy.MakeFeatureLayer_management(in_features=buffer_fc_memory, out_layer=buffer_memory_lyr)
-        empty_and_append(buffer_memory_lyr, buffer_fc_filepath)
-        arcpy.RecalculateFeatureClassExtent_management(buffer_fc_filepath)
+        buffer_fc_path = generate_buffer_layer(aprx, subject_prop_lyr, buffer_dist)
 
         # Add buffer distance value to attribute field in buffer feature class
-        buffer_field = "BUFF_DIST"
-        buffer_fc_lyr = "buffer_fc_lyr"
-        arcpy.MakeFeatureLayer_management(in_features=buffer_fc_filepath, out_layer=buffer_fc_lyr)
-        if not field_exists(buffer_fc_filepath, buffer_field):
-            arcpy.AddMessage("Adding a new buffer distance attribute field...")
-            arcpy.AddField_management(in_table=buffer_fc_lyr, field_name=buffer_field, field_type="SHORT")
-        arcpy.AddMessage("Updating the attribute value in the buffer distance field...")
-        arcpy.CalculateField_management(in_table=buffer_fc_lyr, field=buffer_field,
-                                        expression=buffer_dist, expression_type="PYTHON3")
+        buffer_lyr = update_buffer_distance_field(buffer_dist, buffer_fc_path)
 
-        # Get extent of subject property feature
-        arcpy.AddMessage("Calculating extent of subject property feature...")
-        arcpy.SelectLayerByAttribute_management(in_layer_or_view=subject_prop_lyr, selection_type="NEW_SELECTION")
-        subject_prop_lyr_extent = arcpy.da.Describe("Subject Property")['extent']
-        subject_prop_lyr_extent_obj = arcpy.Extent(subject_prop_lyr_extent.XMin,
-                                                   subject_prop_lyr_extent.YMin,
-                                                   subject_prop_lyr_extent.XMax,
-                                                   subject_prop_lyr_extent.YMax)
-        arcpy.SelectLayerByAttribute_management(in_layer_or_view=subject_prop_lyr, selection_type="CLEAR_SELECTION")
+        # Get extent of subject property feature and buffer feature
+        subject_prop_lyr_extent_obj = get_fc_extent(subject_prop_lyr)
+        buffer_lyr_extent_obj = get_fc_extent(buffer_lyr)
 
-        # Get extent of subject property boundary feature
-        arcpy.AddMessage("Calculating extent of subject property buffer...")
-        arcpy.SelectLayerByAttribute_management(in_layer_or_view=buffer_fc_lyr, selection_type="NEW_SELECTION")
-        buffer_lyr_extent = arcpy.da.Describe(buffer_fc_lyr)["extent"]
-        buffer_lyr_extent_obj = arcpy.Extent(buffer_lyr_extent.XMin,
-                                             buffer_lyr_extent.YMin,
-                                             buffer_lyr_extent.XMax,
-                                             buffer_lyr_extent.YMax)
-        arcpy.SelectLayerByAttribute_management(in_layer_or_view=buffer_fc_lyr, selection_type="CLEAR_SELECTION")
-
-        # Zoom to extent of subject property feature
-        arcpy.AddMessage("Updating extent of layouts...")
-        for lyt in list_layout_obj:
-            mapframe_list = lyt.listElements("MAPFRAME_ELEMENT")
-            for mf in mapframe_list:
-                if mf.map.name == "Map_Aerial":
-                    mf.camera.setExtent(subject_prop_lyr_extent_obj)
-                    mf.camera.scale = mf.camera.scale * 2.5
-                elif mf.map.name == "Map_OZMap":
-                    mf.camera.setExtent(buffer_lyr_extent_obj)
-                    mf.camera.scale = mf.camera.scale * 1.5
+        # Zoom to extent of subject property and buffer features
+        zoom_to_subject_property(list_layout_obj, subject_prop_lyr_extent_obj, buffer_lyr_extent_obj)
 
         # Update text elements
-        arcpy.AddMessage("Updating text elements of layouts...")
-        for lyt in list_layout_obj:
-            element_list = lyt.listElements("TEXT_ELEMENT")
-            for element in element_list:
-                if "PFN Large Text" == element.name:
-                    element.text = f"PFN {params[1].valueAsText}"
-                elif "Project Name Large Text" == element.name:
-                    element.text = params[0].valueAsText
-                elif "Project Manager Text" == element.name:
-                    element.text = f"Project Manager: {params[2].valueAsText}"
-                elif "CartCode Text" == element.name:
-                    element.text = f"Cart. Code: {params[4].valueAsText}"
-                elif "Project Folder Name Text" == element.name:
-                    element.text = f"Project Folder Name: {params[0].valueAsText}"
-                else:
-                    continue
+        update_text_elements(list_layout_obj, params)
 
-        # aprx.saveACopy(r"C:\Users\SCDJ2L\dev\LUPermitToolbox\PermitMaps_TEST_export.aprx")
+        # Save changes and close any open layout or map views
         aprx.save()
         aprx.closeViews()
 
         # Generate safe version of PFN
-        pfn_id = params[1].valueAsText
-        pfn_safe_name = pfn_id.strip().replace(" ", "_").replace('-', '_')
+        pfn_safe_name = generate_safe_pfn(params)
 
         # Export layouts to PDF files
-        export_filepath = r"C:\Users\SCDJ2L\dev\LUPermitToolbox\graphics"
-        for lyt in list_layout_obj:
-            if lyt.name == "Layout_AerialVicinity":
-                arcpy.AddMessage(f"Exporting {lyt.name} to \graphics folder...")
-                lyt.openView()
-                lyt.exportToPDF(out_pdf=f"{export_filepath}\\{pfn_safe_name}_Permits_Aerial.pdf", resolution=250,
-                                georef_info=False)
+        export_layouts_to_pdf(list_layout_obj, pfn_safe_name)
 
-            elif lyt.name == "Layout_OZMap":
-                arcpy.AddMessage(f"Exporting {lyt.name} to \graphics folder...")
-                lyt.openView()
-                lyt.exportToPDF(out_pdf=f"{export_filepath}\\{pfn_safe_name}_Permits_OZMap.pdf", resolution=250,
-                                georef_info=False)
-
-        arcpy.AddMessage("Land Use Permit reporting process completed successfully!")
+        arcpy.AddMessage("Land Use Permit maps updated and exported successfully!")
 
         return
 
@@ -277,7 +179,7 @@ def list_map_objects(aprx_obj, prefix="Map_*"):
     """
     Lists map objects in the APRX file that have a specific prefix in their name.
 
-    :param aprx_path: Path to the APRX file.
+    :param aprx_obj: Path to the APRX file.
     :param prefix: The prefix to search for in map names.
     :return: List of map names with the specified prefix.
     """
@@ -289,7 +191,7 @@ def list_layout_objects(aprx_obj):
     """
     Lists all layout objects in the APRX file.
 
-    :param aprx_path: Path to the APRX file.
+    :param aprx_obj: Path to the APRX file.
     :return: List of layout objects.
     """
     layout_list = (aprx_obj.listLayouts())
@@ -311,7 +213,7 @@ def sanitize_parcel_id(input_parcel_ids):
     """
     Consumes tax account (parcel) IDs and sanitized them by stripping whitespace and "_" characters
 
-    :param input_parcel_id: parcel ID in string format
+    :param input_parcel_ids: parcel ID in string format
     :return: list of sanitized parcel ID strings
     """
     list_parcel_ids = convert_to_list(input_parcel_ids)
@@ -338,7 +240,7 @@ def find_layer(input_map_obj_list, map_name, layer_name):
     """
     Finds a layer object based on wildcard layer name from first map object in the list.
 
-    :param input_map_list: list of map objects
+    :param input_map_obj_list: list of map objects
     :param layer_name: wildcard string for the layer name
     :return:  The layer object if found, otherwise None
     """
@@ -442,3 +344,222 @@ def field_exists(input_fc, field_name):
         if field.name == field_name:
             return True
     return False
+
+
+def dissolve_parcels_to_memory(found_layer_object, parcel_id_list, query_parcel):
+    """
+    Queries the cadastral parcel layer using the input parcel ID values, extracts those parcel to a memory layer,
+    then dissolves if there is more than one parcel feature.
+
+    :param found_layer_object:
+    :param parcel_id_list:
+    :param query_parcel:
+    :return: memory_lyr
+    """
+    memory_layer_extract = extract_fc_to_memory(found_layer_object, query_parcel)
+    memory_layer = r"memory\memory_lyr"
+    if len(parcel_id_list) > 1:
+        arcpy.AddMessage("There are > 1 parcels. The parcel boundaries will be dissolved...")
+        arcpy.Dissolve_management(in_features=memory_layer_extract, out_feature_class=memory_layer)
+    else:
+        arcpy.MakeFeatureLayer_management(in_features=memory_layer_extract, out_layer=memory_layer)
+    return memory_layer
+
+
+def update_subject_prop_fc(aprx_object, memory_layer):
+    """
+    Empties the subject property feature class in the project file GDB, and append the selected subject property feature
+
+    :param aprx_object: 
+    :param memory_layer: 
+    :return: subject_prop_fc_path:
+    """
+    #
+    arcpy.AddMessage("Emptying the subject property feature class of all features...")
+    subject_property_fc = "SubjectProperty"
+    subject_property_fc_path = check_fc_exists(aprx_object, subject_property_fc)
+    empty_and_append(memory_layer, subject_property_fc_path)
+    arcpy.RecalculateFeatureClassExtent_management(subject_property_fc_path)
+    arcpy.Delete_management(memory_layer)
+    return subject_property_fc_path
+
+
+def get_buffer_distance(map_object_list, map_name, subject_property_layer):
+    """
+    Calculate buffer size based on where the subject property is located relative to UGA boundaries
+
+    :param map_object_list:
+    :param map_name:
+    :param subject_property_layer:
+    :return: buffer_dist
+    """
+
+    arcpy.AddMessage("Calculating subject property buffer...")
+    uga_layer_name = "Urban Growth Area (UGA)"
+    uga_layer_obj = find_layer(map_object_list, map_name, uga_layer_name)
+    arcpy.MakeFeatureLayer_management(in_features=uga_layer_obj, out_layer="uga_lyr")
+    arcpy.AddMessage("Selecting subject property location if center is in UGA polygon features...")
+    arcpy.SelectLayerByLocation_management(in_layer=subject_property_layer,
+                                           overlap_type="HAVE_THEIR_CENTER_IN",
+                                           select_features="uga_lyr",
+                                           selection_type="NEW_SELECTION")
+    select_count = int(arcpy.GetCount_management(in_rows=subject_property_layer)[0])
+    arcpy.SelectLayerByAttribute_management(in_layer_or_view=subject_property_layer, selection_type="CLEAR_SELECTION")
+    if select_count == 0:
+        arcpy.AddMessage("The subject property is outside of any UGAs, generating 1000ft buffer...")
+        buffer_dist = 1000
+    else:
+        arcpy.AddMessage("Subject property is inside of a UGA, generating 500ft buffer...")
+        buffer_dist = 500
+
+    return buffer_dist
+
+
+def generate_buffer_layer(aprx_object, subject_property_layer, buffer_distance):
+    """
+    Generate buffer feature and add to buffer feature class (empty features first if necessary)
+
+    :param aprx_object: ArcGIS Pro APRX object
+    :param subject_property_layer: layer with subject property feature class as the data source
+    :param buffer_distance: integer representing the required buffer distance
+    :return buffer_fc_filepath: filepath to the buffer feature class
+    """
+    arcpy.AddMessage("Generating subject property buffer polygon feature....")
+    buffer_fc_name = "Radius"
+    buffer_fc_memory = r"memory\buffer_fc"
+    buffer_memory_lyr = "buffer_memory_layer"
+    buffer_fc_filepath = check_fc_exists(aprx_object, buffer_fc_name)
+    arcpy.Buffer_analysis(in_features=subject_property_layer, out_feature_class=buffer_fc_memory,
+                          buffer_distance_or_field=f"{str(buffer_distance)} Feet",
+                          line_side="FULL", dissolve_option="ALL")
+    arcpy.MakeFeatureLayer_management(in_features=buffer_fc_memory, out_layer=buffer_memory_lyr)
+    empty_and_append(buffer_memory_lyr, buffer_fc_filepath)
+    arcpy.RecalculateFeatureClassExtent_management(buffer_fc_filepath)
+
+    return buffer_fc_filepath
+
+
+def update_buffer_distance_field(buffer_dist, buffer_fc_filepath):
+    """
+    Add buffer distance value to attribute field in buffer feature class
+
+    :param buffer_dist: integer representing the calculated buffer distance
+    :param buffer_fc_filepath: file path to the buffer feature class in the default geodatabase
+    :return buffer_layer: layer with the buffer feature class as a data source
+    """
+    buffer_layer = "buffer_lyr"
+    arcpy.MakeFeatureLayer_management(in_features=buffer_fc_filepath, out_layer=buffer_layer)
+    buffer_field = "BUFF_DIST"
+    if not field_exists(buffer_fc_filepath, buffer_field):
+        arcpy.AddMessage("Adding a new buffer distance attribute field...")
+        arcpy.AddField_management(in_table=buffer_layer, field_name=buffer_field, field_type="SHORT")
+    arcpy.AddMessage("Updating the attribute value in the buffer distance field...")
+    arcpy.CalculateField_management(in_table=buffer_layer, field=buffer_field,
+                                    expression=buffer_dist, expression_type="PYTHON3")
+
+    return buffer_layer
+
+
+def get_fc_extent(input_layer):
+    """
+    Get extent of subject property feature and return as an Extent object
+
+    :param input_layer: target layer
+    :param layer_name_string: the name of the target layer as a string
+    :return layer_extent_object: Extent object
+    """
+    arcpy.AddMessage("Calculating extent of subject property feature...")
+    arcpy.SelectLayerByAttribute_management(in_layer_or_view=input_layer, selection_type="NEW_SELECTION")
+    layer_extent = arcpy.da.Describe(input_layer)['extent']
+    layer_extent_object = arcpy.Extent(layer_extent.XMin, layer_extent.YMin, layer_extent.XMax, layer_extent.YMax)
+    arcpy.SelectLayerByAttribute_management(in_layer_or_view=input_layer, selection_type="CLEAR_SELECTION")
+
+    return layer_extent_object
+
+
+def zoom_to_subject_property(layout_object_list, subject_prop_lyr_extent, buffer_lyr_extent):
+    """
+    Zoom to extent of subject property feature and buffer feature
+
+    :param layout_object_list:
+    :param subject_prop_lyr_extent:
+    :param buffer_lyr_extent:
+    :return:
+    """
+    arcpy.AddMessage("Zoom layouts to extent of subject property and buffer...")
+    for lyt in layout_object_list:
+        mapframe_list = lyt.listElements("MAPFRAME_ELEMENT")
+        for mf in mapframe_list:
+            if mf.map.name == "Map_Aerial":
+                mf.camera.setExtent(subject_prop_lyr_extent)
+                mf.camera.scale = mf.camera.scale * 2.5
+            elif mf.map.name == "Map_OZMap":
+                mf.camera.setExtent(buffer_lyr_extent)
+                mf.camera.scale = mf.camera.scale * 1.5
+    return
+
+
+def update_text_elements(layout_object_list, input_params):
+    """
+    Updates project name, project folder number (PFN), project manager, and cartographic code text elements in layouts
+
+    :param layout_object_list: list of layout objects pulled from the APRX object
+    :param input_params: list of parameter objects from the getParameterInfo method of the GenerateLUMapTool class
+    :return:
+    """
+    arcpy.AddMessage("Updating text elements of layouts...")
+    for lyt in layout_object_list:
+        element_list = lyt.listElements("TEXT_ELEMENT")
+        for element in element_list:
+            if "PFN Large Text" == element.name:
+                element.text = f"PFN {input_params[1].valueAsText}"
+            elif "Project Name Large Text" == element.name:
+                element.text = input_params[0].valueAsText
+            elif "Project Manager Text" == element.name:
+                element.text = f"Project Manager: {input_params[2].valueAsText}"
+            elif "CartCode Text" == element.name:
+                element.text = f"Cart. Code: {input_params[4].valueAsText}"
+            elif "Project Folder Name Text" == element.name:
+                element.text = f"Project Folder Name: {input_params[0].valueAsText}"
+            else:
+                continue
+
+    return
+
+
+def generate_safe_pfn(input_params):
+    """
+    Generates a safe version of PFN as a string
+
+    :param input_params: list of parameter objects from the getParameterInfo method of the GenerateLUMapTool class
+    :return pfn_safe_name: PFN string with all spaces and "-" characters replaced with underscores
+    """
+    pfn_id = input_params[1].valueAsText
+    pfn_safe_name = pfn_id.strip().replace(" ", "_").replace('-', '_')
+
+    return pfn_safe_name
+
+
+def export_layouts_to_pdf(layout_object_list, input_pfn):
+    """
+    Export both layouts to PDF files
+
+    :param layout_object_list:
+    :param input_pfn: sanitized PFN value as string
+    :return:
+    """
+    export_filepath = r"C:\Users\SCDJ2L\dev\LUPermitToolbox\graphics"
+    for lyt in layout_object_list:
+        if lyt.name == "Layout_AerialVicinity":
+            arcpy.AddMessage(f"Exporting {lyt.name} to \graphics folder...")
+            lyt.openView()
+            lyt.exportToPDF(out_pdf=f"{export_filepath}\\{input_pfn}_Permits_Aerial.pdf", resolution=250,
+                            georef_info=False)
+
+        elif lyt.name == "Layout_OZMap":
+            arcpy.AddMessage(f"Exporting {lyt.name} to \graphics folder...")
+            lyt.openView()
+            lyt.exportToPDF(out_pdf=f"{export_filepath}\\{input_pfn}_Permits_OZMap.pdf", resolution=250,
+                            georef_info=False)
+
+    return
