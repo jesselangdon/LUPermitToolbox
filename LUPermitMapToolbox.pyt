@@ -263,9 +263,13 @@ def extract_fc_to_memory(src_lyr, query_string, target_lyr=r"memory\selected_fea
     arcpy.SelectLayerByAttribute_management(in_layer_or_view=src_lyr,
                                             selection_type="NEW_SELECTION",
                                             where_clause=query_string)
-    arcpy.CopyFeatures_management(in_features=src_lyr, out_feature_class=target_lyr)
-    arcpy.SelectLayerByAttribute_management(in_layer_or_view=src_lyr, selection_type="CLEAR_SELECTION")
-
+    selected_feature_count = int(arcpy.GetCount_management(src_lyr).getOutput(0))
+    if selected_feature_count > 0:
+        arcpy.CopyFeatures_management(in_features=src_lyr, out_feature_class=target_lyr)
+        arcpy.SelectLayerByAttribute_management(in_layer_or_view=src_lyr, selection_type="CLEAR_SELECTION")
+    else:
+        arcpy.AddError(f"ERROR: Query resulted in zero features found in {src_lyr}!\n"
+                       f"You should double check that these parcels exist in the Assessor's cadastral parcel geodatabase...")
     return target_lyr
 
 
@@ -502,10 +506,10 @@ def zoom_to_subject_property(layout_object_list, subject_prop_lyr_extent, buffer
         for mf in mapframe_list:
             if mf.map.name == "Map_Aerial":
                 mf.camera.setExtent(subject_prop_lyr_extent)
-                mf.camera.scale = mf.camera.scale * 2.5
+                mf.camera.scale = mf.camera.scale * 6
             elif mf.map.name == "Map_OZMap":
                 mf.camera.setExtent(buffer_lyr_extent)
-                mf.camera.scale = mf.camera.scale * 1.5
+                mf.camera.scale = mf.camera.scale * 1.75
     return
 
 
