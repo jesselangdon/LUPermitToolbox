@@ -562,16 +562,16 @@ def export_layouts_to_pdf(layout_object_list, input_pfn):
     :param input_pfn: sanitized PFN value as string
     :return:
     """
-    export_filepath = r"C:\Users\SCDJ2L\dev\LUPermitToolbox\graphics"
+    export_filepath = r"\\snoco\gis\plng\carto\permit\Land_Use_Permits\Graphics"
     for lyt in layout_object_list:
         if lyt.name == "Layout_AerialVicinity":
-            arcpy.AddMessage(f"Exporting {lyt.name} to \graphics folder...")
+            arcpy.AddMessage(f"Exporting {lyt.name} to Land_Use_Permits\Graphics folder...")
             lyt.openView()
             lyt.exportToPDF(out_pdf=f"{export_filepath}\\{input_pfn}_Permits_Aerial.pdf", resolution=250,
                             georef_info=False)
 
         elif lyt.name == "Layout_OZMap":
-            arcpy.AddMessage(f"Exporting {lyt.name} to \graphics folder...")
+            arcpy.AddMessage(f"Exporting {lyt.name} to Land_Use_Permits\Graphics folder...")
             lyt.openView()
             lyt.exportToPDF(out_pdf=f"{export_filepath}\\{input_pfn}_Permits_OZMap.pdf", resolution=250,
                             georef_info=False)
