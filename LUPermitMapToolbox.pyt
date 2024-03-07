@@ -138,7 +138,7 @@ class GenerateLUMapTool(object):
         update_text_elements(list_layout_obj, params)
 
         # Save changes and close any open layout or map views
-        aprx.save()
+        # aprx.save()
         aprx.closeViews()
 
         # Generate safe version of PFN
