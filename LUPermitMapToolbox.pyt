@@ -137,9 +137,12 @@ class GenerateLUMapTool(object):
         # Update text elements
         update_text_elements(list_layout_obj, params)
 
-        # Save changes and close any open layout or map views
+        # Close any open layout or map views and reopen layouts
         # aprx.save()
         aprx.closeViews()
+        for layout in list_layout_obj:
+            arcpy.AddMessage(f"Opening {layout.name} layout...")
+            layout.openView()
 
         # Generate safe version of PFN
         pfn_safe_name = generate_safe_pfn(params)
@@ -566,13 +569,11 @@ def export_layouts_to_pdf(layout_object_list, input_pfn):
     for lyt in layout_object_list:
         if lyt.name == "Layout_AerialVicinity":
             arcpy.AddMessage(f"Exporting {lyt.name} to Land_Use_Permits\Graphics folder...")
-            lyt.openView()
             lyt.exportToPDF(out_pdf=f"{export_filepath}\\{input_pfn}_Permits_Aerial.pdf", resolution=250,
                             georef_info=False)
 
         elif lyt.name == "Layout_OZMap":
             arcpy.AddMessage(f"Exporting {lyt.name} to Land_Use_Permits\Graphics folder...")
-            lyt.openView()
             lyt.exportToPDF(out_pdf=f"{export_filepath}\\{input_pfn}_Permits_OZMap.pdf", resolution=250,
                             georef_info=False)
 
