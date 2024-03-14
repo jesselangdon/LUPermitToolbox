@@ -570,19 +570,21 @@ def export_layouts_to_pdf(layout_object_list, input_pfn):
         if lyt.name == "Layout_AerialVicinity":
             arcpy.AddMessage(f"Exporting {lyt.name} to Land_Use_Permits\Graphics folder...")
             lyt.exportToPDF(out_pdf=f"{export_filepath}\\{input_pfn}_Permits_Aerial.pdf",
-                            image_compression="JPEG",
+                            image_compression="ADAPTIVE",
                             layers_attributes="NONE",
                             image_quality="BEST",
-                            resolution=250,
+                            compress_vector_graphics=True,
+                            resolution=200,
                             georef_info=False)
 
         elif lyt.name == "Layout_OZMap":
             arcpy.AddMessage(f"Exporting {lyt.name} to Land_Use_Permits\Graphics folder...")
             lyt.exportToPDF(out_pdf=f"{export_filepath}\\{input_pfn}_Permits_OZMap.pdf",
-                            image_compression="JPEG",
+                            image_compression="ADAPTIVE",
                             layers_attributes="NONE",
                             image_quality="BEST",
-                            resolution=250,
+                            compress_vector_graphics=True,
+                            resolution=200,
                             georef_info=False
                             )
 
